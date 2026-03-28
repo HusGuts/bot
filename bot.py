@@ -3,6 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import os
 from dotenv import load_dotenv
+import asyncio
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -16,14 +17,60 @@ class TapForceBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        self.add_view(CreateTicketView())
+        self.add_view(CloseTicketView())
         await self.tree.sync()
-        print("Commandes synchronisées !")
+        print("Commands and Boutons sync !")
 
 bot = TapForceBot()
 
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) 
+
+    @discord.ui.button(label="🔒 Close ticket", style=discord.ButtonStyle.red, custom_id="close_ticket_btn")
+    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Closing ticket in 5 seconds...", ephemeral=True)
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+class CreateTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🎫 Create a ticket", style=discord.ButtonStyle.blurple, custom_id="create_ticket_btn")
+    async def create(self, interaction: discord.Interaction, button: discord.ui.Button):
+        role_modo = discord.utils.get(interaction.guild.roles, name="Co-Leader")
+        
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False), 
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        
+        if role_modo:
+            overwrites[role_modo] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+        channel_name = f"ticket-{interaction.user.name}"
+        ticket_channel = await interaction.guild.create_text_channel(
+            name=channel_name,
+            overwrites=overwrites,
+            reason=f"Ticket create by {interaction.user}"
+        )
+
+        await interaction.response.send_message(f"Your ticket has been create : {ticket_channel.mention}", ephemeral=True)
+
+        # Envoie le message d'accueil dans le nouveau ticket
+        embed = discord.Embed(
+            title="📞 Club Support",
+            description=f"Hey {interaction.user.mention} !\nSomeone will answer you.\nExplain your problem.\n\n*To close this ticket, click the red button below.*",
+            color=discord.Color.green()
+        )
+        await ticket_channel.send(embed=embed, view=CloseTicketView())
+
 @bot.event
 async def on_ready():
-    print(f'Bot connecté avec succès en tant que {bot.user}')
+    print(f'Bot connected perfect {bot.user}')
     await bot.change_presence(activity=discord.Game(name="Tap Force Bot"))
 
 @bot.tree.command(name="faction", description="Choose your favourite faction !")
@@ -70,5 +117,16 @@ async def on_member_join(member):
         
         await channel.send(embed=embed)
 
+@bot.tree.command(name="setup_ticket", description="[Staff] Install the ticket panel")
+@app_commands.default_permissions(manage_channels=True)
+async def setup_ticket(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🎫 Support Center",
+        description="Need help, have a question for the staff, or want to report an issue?\nClick the button below to open a private ticket.",
+        color=discord.Color.dark_theme()
+    )
+    await interaction.channel.send(embed=embed, view=CreateTicketView())
+    
+    await interaction.response.send_message("Panel successfully installed!", ephemeral=True)
 
 bot.run(TOKEN)
