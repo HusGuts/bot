@@ -28,11 +28,48 @@ class CloseTicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None) 
 
-    @discord.ui.button(label="🔒 Close ticket", style=discord.ButtonStyle.red, custom_id="close_ticket_btn")
+    @discord.ui.button(label="🔒 Close & Archive", style=discord.ButtonStyle.red, custom_id="close_ticket_btn")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Closing ticket in 5 seconds...", ephemeral=True)
-        await asyncio.sleep(5)
-        await interaction.channel.delete()
+        ID_CATEGORIE_ARCHIVE = 1488163475816583279
+        NOM_ROLE_MODO = "Co-Leader"
+
+        await interaction.response.defer(ephemeral=True)
+        
+        channel = interaction.channel
+        guild = interaction.guild
+        category_archive = guild.get_channel(ID_CATEGORIE_ARCHIVE)
+        role_modo = discord.utils.get(guild.roles, name=NOM_ROLE_MODO)
+
+        if not category_archive:
+            return await interaction.followup.send("❌ Error : The archive category cannot be found. Check the ID in the code.", ephemeral=True)
+
+        await interaction.followup.send("Archiving the ticket...", ephemeral=True)
+        await asyncio.sleep(2)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        }
+        
+        if role_modo:
+            overwrites[role_modo] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
+
+        try:
+            await channel.edit(
+                name=f"archive-{channel.name}",
+                category=category_archive,
+                overwrites=overwrites,
+                reason=f"Ticket archivé par {interaction.user}"
+            )
+            
+            embed_archive = discord.Embed(
+                description=f"📁 **Ticket archived**\Closing by : {interaction.user.mention}",
+                color=discord.Color.greyple()
+            )
+            await interaction.edit_original_response(content="✅ Ticket successfully archived.")
+            await channel.send(embed=embed_archive, view=None) 
+            
+        except Exception as e:
+            await interaction.followup.send(f"❌ An error has occurred : {e}", ephemeral=True)
 
 class CreateTicketView(discord.ui.View):
     def __init__(self):
