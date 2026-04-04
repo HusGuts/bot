@@ -4,6 +4,9 @@ from discord import app_commands
 import os
 from dotenv import load_dotenv
 import asyncio
+import json
+import random
+import re
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -12,7 +15,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True 
 
-# --- CLASSES DES VUES ---
 
 class CloseTicketView(discord.ui.View):
     def __init__(self):
@@ -20,18 +22,15 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="🔒 Close & Archive", style=discord.ButtonStyle.red, custom_id="close_ticket_btn")
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ⚠️ REMPLACE CES IDS PAR LES TIENS ⚠️
-        ID_ARCHIVE_SUPPORT = 1488163475816583279  # Ton ID actuel
-        ID_ARCHIVE_BUILD = 1488180429965230130    # Ton NOUVEL ID pour les builds
+        ID_ARCHIVE_SUPPORT = 1488163475816583279 
+        ID_ARCHIVE_BUILD = 1488180429965230130    
         NOM_ROLE_MODO = "Co-Leader"
-        # ---------------------------------------
 
         await interaction.response.defer(ephemeral=True)
         
         channel = interaction.channel
         guild = interaction.guild
         
-        # Détection du type de ticket par le nom du salon
         if channel.name.startswith("build-"):
             category_id = ID_ARCHIVE_BUILD
             prefix = "📁 Archive Build"
@@ -45,7 +44,7 @@ class CloseTicketView(discord.ui.View):
         if not category_archive:
             return await interaction.followup.send(f"❌ Error: Archive category ({category_id}) not found.", ephemeral=True)
 
-        # Permissions : Lecture pour Staff, rien pour le joueur
+
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
@@ -54,7 +53,6 @@ class CloseTicketView(discord.ui.View):
             overwrites[role_modo] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
 
         try:
-            # On renomme et on déplace
             await channel.edit(
                 name=f"done-{channel.name}",
                 category=category_archive,
@@ -128,14 +126,12 @@ class CreateBuildTicketView(discord.ui.View):
         )
         await ticket_channel.send(embed=embed, view=CloseTicketView())
 
-# --- CONFIGURATION DU BOT ---
 
 class TapForceBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # On enregistre les 3 vues pour qu'elles restent actives après redémarrage
         self.add_view(CreateTicketView())
         self.add_view(CreateBuildTicketView())
         self.add_view(CloseTicketView())
@@ -149,7 +145,6 @@ async def on_ready():
     print(f'Bot connected: {bot.user}')
     await bot.change_presence(activity=discord.Game(name="Tap Force Bot"))
 
-# --- COMMANDES SLASH ---
 
 @bot.tree.command(name="setup_ticket", description="[Staff] Install the Support ticket panel")
 @app_commands.default_permissions(manage_channels=True)
@@ -201,5 +196,85 @@ async def on_member_join(member):
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="Step 1", value="Use `/faction`", inline=False)
         await channel.send(embed=embed)
+
+
+def load_scores():
+    try:
+        with open("scores.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_score(user_id, points):
+    scores = load_scores()
+    user_id = str(user_id)
+    scores[user_id] = scores.get(user_id, 0) + points
+    with open("scores.json", "w") as f:
+        json.dump(scores, f, indent=4)
+
+
+class GuessModal(discord.ui.Modal, title="Who is this character?"):
+    answer = discord.ui.TextInput(label="Character Name", placeholder="Enter the name here...", min_length=2, max_length=50)
+
+    def __init__(self, correct_name, file_path):
+        super().__init__()
+        self.correct_name = correct_name.lower()
+        self.file_path = file_path
+
+    async def on_submit(self, interaction: discord.Interaction):
+        user_answer = self.answer.value.strip().lower()
+        
+        if user_answer == self.correct_name:
+            points_gained = 10
+            save_score(interaction.user.id, points_gained)
+            await interaction.response.send_message(f"✅ Well done {interaction.user.mention}! It was indeed **{self.correct_name.capitalize()}**. You win {points_gained} points!", ephemeral=False)
+        else:
+            await interaction.response.send_message(f"❌ Wrong answer {interaction.user.mention}! Try your luck next time.", ephemeral=True)
+
+
+class WhoIsView(discord.ui.View):
+    def __init__(self, correct_name, file_path):
+        super().__init__(timeout=60)
+        self.correct_name = correct_name
+        self.file_path = file_path
+
+    @discord.ui.button(label="Guess!", style=discord.ButtonStyle.primary)
+    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(GuessModal(self.correct_name, self.file_path))
+        self.stop()
+
+
+
+@bot.tree.command(name="whois", description="Start a mini-game to guess the character!")
+async def whois(interaction: discord.Interaction):
+    path = "./WhoIs"
+    files = [f for f in os.listdir(path) if f.endswith(('.png', '.jpg', '.jpeg'))]
+    
+    if not files:
+        return await interaction.response.send_message("The WhoIs folder is empty!", ephemeral=True)
+
+    chosen_file = random.choice(files)
+    character_name = re.sub(r'\d+', '', chosen_file.split('.')[0]).strip()
+    
+    file = discord.File(f"{path}/{chosen_file}", filename="image.png")
+    embed = discord.Embed(title="Who is this character?", color=discord.Color.orange())
+    embed.set_image(url="attachment://image.png")
+    
+    await interaction.response.send_message(file=file, embed=embed, view=WhoIsView(character_name, chosen_file))
+
+@bot.tree.command(name="leaderboard", description="Show the top players")
+async def leaderboard(interaction: discord.Interaction):
+    scores = load_scores()
+    if not scores:
+        return await interaction.response.send_message("No scores yet!", ephemeral=True)
+
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    description = ""
+    for i, (user_id, score) in enumerate(sorted_scores, 1):
+        description += f"**{i}.** <@{user_id}> - {score} points\n"
+
+    embed = discord.Embed(title="🏆 WhoIs Leaderboard", description=description, color=discord.Color.gold())
+    await interaction.response.send_message(embed=embed)
 
 bot.run(TOKEN)
