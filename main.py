@@ -24,7 +24,7 @@ class CloseTicketView(discord.ui.View):
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
         ID_ARCHIVE_SUPPORT = 1488163475816583279 
         ID_ARCHIVE_BUILD = 1488180429965230130    
-        NOM_ROLE_MODO = "Co-Leader"
+        NOM_ROLE_MODO = "Moderator"
 
         await interaction.response.defer(ephemeral=True)
         
