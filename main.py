@@ -3,7 +3,6 @@ from discord.ext import commands
 from discord import app_commands
 import os
 from dotenv import load_dotenv
-import asyncio
 import json
 import random
 import re
@@ -15,126 +14,11 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True 
 
-
-class CloseTicketView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None) 
-
-    @discord.ui.button(label="🔒 Close & Archive", style=discord.ButtonStyle.red, custom_id="close_ticket_btn")
-    async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ID_ARCHIVE_SUPPORT = 1488163475816583279 
-        ID_ARCHIVE_BUILD = 1488180429965230130    
-        NOM_ROLE_MODO = "Moderator"
-
-        await interaction.response.defer(ephemeral=True)
-        
-        channel = interaction.channel
-        guild = interaction.guild
-        
-        if channel.name.startswith("build-"):
-            category_id = ID_ARCHIVE_BUILD
-            prefix = "📁 Archive Build"
-        else:
-            category_id = ID_ARCHIVE_SUPPORT
-            prefix = "📁 Archive Support"
-
-        category_archive = guild.get_channel(category_id)
-        role_modo = discord.utils.get(guild.roles, name=NOM_ROLE_MODO)
-
-        if not category_archive:
-            return await interaction.followup.send(f"❌ Error: Archive category ({category_id}) not found.", ephemeral=True)
-
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
-        }
-        if role_modo:
-            overwrites[role_modo] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
-
-        try:
-            await channel.edit(
-                name=f"done-{channel.name}",
-                category=category_archive,
-                overwrites=overwrites,
-                reason=f"Archivé par {interaction.user}"
-            )
-            
-            embed_archive = discord.Embed(
-                title=prefix,
-                description=f"Ticket closed by : {interaction.user.mention}",
-                color=discord.Color.dark_grey()
-            )
-            await channel.send(embed=embed_archive)
-            await interaction.followup.send("✅ Ticket successfully archived.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Error during archiving: {e}", ephemeral=True)
-
-class CreateTicketView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="🎫 Create a ticket", style=discord.ButtonStyle.blurple, custom_id="create_ticket_btn")
-    async def create(self, interaction: discord.Interaction, button: discord.ui.Button):
-        role_modo = discord.utils.get(interaction.guild.roles, name="Co-Leader")
-        
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False), 
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-        if role_modo:
-            overwrites[role_modo] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
-        channel_name = f"ticket-{interaction.user.name}"
-        ticket_channel = await interaction.guild.create_text_channel(name=channel_name, overwrites=overwrites)
-
-        await interaction.response.send_message(f"Ticket created: {ticket_channel.mention}", ephemeral=True)
-
-        embed = discord.Embed(
-            title="📞 Club Support",
-            description=f"Hey {interaction.user.mention}!\nExplain your problem here.\n\n*Click the red button to archive.*",
-            color=discord.Color.green()
-        )
-        await ticket_channel.send(embed=embed, view=CloseTicketView())
-
-class CreateBuildTicketView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="🔨 Create Build Ticket", style=discord.ButtonStyle.green, custom_id="create_build_ticket_btn")
-    async def create(self, interaction: discord.Interaction, button: discord.ui.Button):
-        role_modo = discord.utils.get(interaction.guild.roles, name="Co-Leader")
-        
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False), 
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-        if role_modo:
-            overwrites[role_modo] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
-        channel_name = f"build-{interaction.user.name}"
-        ticket_channel = await interaction.guild.create_text_channel(name=channel_name, overwrites=overwrites)
-
-        await interaction.response.send_message(f"Build ticket created: {ticket_channel.mention}", ephemeral=True)
-
-        embed = discord.Embed(
-            title="🔨 Build Support",
-            description=f"Welcome {interaction.user.mention}!\nTell us which build you need help with.",
-            color=discord.Color.blue()
-        )
-        await ticket_channel.send(embed=embed, view=CloseTicketView())
-
-
 class TapForceBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        self.add_view(CreateTicketView())
-        self.add_view(CreateBuildTicketView())
-        self.add_view(CloseTicketView())
         await self.tree.sync()
         print("Commands and Buttons sync!")
 
@@ -145,28 +29,9 @@ async def on_ready():
     print(f'Bot connected: {bot.user}')
     await bot.change_presence(activity=discord.Game(name="Tap Force Bot"))
 
-
-@bot.tree.command(name="setup_ticket", description="[Staff] Install the Support ticket panel")
-@app_commands.default_permissions(manage_channels=True)
-async def setup_ticket(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🎫 Support Center",
-        description="Need help? Click the button below to open a private ticket.",
-        color=discord.Color.dark_theme()
-    )
-    await interaction.channel.send(embed=embed, view=CreateTicketView())
-    await interaction.response.send_message("Support panel installed!", ephemeral=True)
-
-@bot.tree.command(name="setup_build", description="[Staff] Install the Build ticket panel")
-@app_commands.default_permissions(manage_channels=True)
-async def setup_build(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🔨 Strategy & Builds",
-        description="Click below to request help for a specific build.",
-        color=discord.Color.blue()
-    )
-    await interaction.channel.send(embed=embed, view=CreateBuildTicketView())
-    await interaction.response.send_message("Build panel installed!", ephemeral=True)
+# ==========================================
+# COMMANDES DE FACTION ET BIENVENUE
+# ==========================================
 
 @bot.tree.command(name="faction", description="Choose your favourite faction !")
 @app_commands.choices(choix=[
@@ -190,13 +55,18 @@ async def faction(interaction: discord.Interaction, choix: app_commands.Choice[s
 
 @bot.event
 async def on_member_join(member):
-    channel = member.guild.system_channel or discord.utils.get(member.guild.text_channels, name="🙋╎𝖦𝖾𝗇𝖾𝗋𝖺𝗅-𝖢𝗁𝖺𝗍╎")
+    channel = member.guild.system_channel or discord.utils.get(member.guild.text_channels, name="🙋╎ɢᴇɴᴇʀᴀʟ-ᴄʜᴀᴛ")
     if channel:
         embed = discord.Embed(title="🥊 New Member!", description=f"Welcome {member.mention}!", color=discord.Color.gold())
         embed.set_thumbnail(url=member.display_avatar.url)
         embed.add_field(name="Step 1", value="Use `/faction`", inline=False)
+        embed.add_field(name="Step 2", value="Read the rules <#1496975331033088130>", inline=False)
+        embed.add_field(name="Step 3", value="Read and react to annoucements", inline=False)
         await channel.send(embed=embed)
 
+# ==========================================
+# MINI-JEU WHO IS ET LEADERBOARD
+# ==========================================
 
 def load_scores():
     try:
@@ -211,7 +81,6 @@ def save_score(user_id, points):
     scores[user_id] = scores.get(user_id, 0) + points
     with open("scores.json", "w") as f:
         json.dump(scores, f, indent=4)
-
 
 class GuessModal(discord.ui.Modal, title="Who is this character?"):
     answer = discord.ui.TextInput(label="Character Name", placeholder="Enter the name here...", min_length=2, max_length=50)
@@ -231,7 +100,6 @@ class GuessModal(discord.ui.Modal, title="Who is this character?"):
         else:
             await interaction.response.send_message(f"❌ Wrong answer {interaction.user.mention}! Try your luck next time.", ephemeral=True)
 
-
 class WhoIsView(discord.ui.View):
     def __init__(self, correct_name, file_path):
         super().__init__(timeout=60)
@@ -242,8 +110,6 @@ class WhoIsView(discord.ui.View):
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(GuessModal(self.correct_name, self.file_path))
         self.stop()
-
-
 
 @bot.tree.command(name="whois", description="Start a mini-game to guess the character!")
 async def whois(interaction: discord.Interaction):
